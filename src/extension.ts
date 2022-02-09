@@ -16,76 +16,83 @@ interface LineRange {
 	end: number;
 }
 
-export function activate(context: vscode.ExtensionContext) {
+/**
+ * The VS Code plugin system uses this hook as an entry point to the plugin.
+ */
 
-	const disposable = vscode.commands.registerCommand('git-link.copyRemoteGitRepositoryLink', () => {
-
-		const git = vscode.extensions.getExtension<GitExtension>('vscode.git')?.exports?.getAPI(1);
-		if (!git) {
-			vscode.window.showErrorMessage(`${FAILURE_MESSAGE} VS Code's Git extension is not active.`);
-			return;
-		}
-
-		const remote = git.repositories[0].state.remotes[0];
-		if (!remote) {
-			vscode.window.showErrorMessage(`${FAILURE_MESSAGE} there are no remotes.`);
-			return;
-		}
-
-		// If there's a remote object, there should be one or both fetch/push remote URLs, never neither.
-		const remoteUrl = (remote?.fetchUrl || remote?.pushUrl)!;
-
-		const commitHash = git.repositories[0].state.HEAD?.commit;
-		if (!commitHash) {
-			vscode.window.showErrorMessage(`${FAILURE_MESSAGE} there is no HEAD.`);
-			return;
-		}
-
-		if (!vscode.window.activeTextEditor) {
-			vscode.window.showErrorMessage(`${FAILURE_MESSAGE} there is no active editor.`);
-			return;
-		}
-
-		const fileUri = vscode.window.activeTextEditor.document.uri;
-		const filePath = vscode.workspace.asRelativePath(fileUri);
-
-		const selections = vscode.window.activeTextEditor.selections;
-		const selectionRange = unionSelectionRange(selections);
-
-		let gitLink = '';
-
-		if (isGitHubRemote(remoteUrl)) {
-			gitLink = createGitHubLink(remoteUrl, commitHash, filePath, selectionRange);
-		} else if (isBitbucketRemote(remoteUrl)) {
-			gitLink = createBitbucketLink(remoteUrl, commitHash, filePath, selectionRange);
-		}
-
-		if (!gitLink) {
-			vscode.window.showErrorMessage(`${FAILURE_MESSAGE} the remote Git host is unknown.`);
-			return;
-		}
-
-		// We did it!
-		vscode.env.clipboard.writeText(gitLink);
-
-		const gitStatusIsClean = git.repositories[0].state.workingTreeChanges.length === 0;
-
-		if (gitStatusIsClean) {
-			vscode.window.showInformationMessage(`${SUCCESS_MESSAGE}.`);
-		} else {
-			vscode.window.showWarningMessage(`${SUCCESS_MESSAGE}, but there are local changes so the link may be incorrect.`);
-		}
-	});
-
+export function activate(context: vscode.ExtensionContext): void {
+	const disposable = vscode.commands.registerCommand('git-link.copyRemoteGitRepositoryLink', main);
 	context.subscriptions.push(disposable);
 }
 
 /**
- * Called when extension is deactivated.
+ * The VS Code plugin system uses this hook so you can clean up resources if necessary.
  */
 
-export function deactivate() {
+ export function deactivate(): void {
 	// tacit
+}
+
+/**
+ * Core functionality of the plugin. Pull together all of the necessary repo data and construct a link.
+ */
+
+function main(): void {
+	const git = vscode.extensions.getExtension<GitExtension>('vscode.git')?.exports?.getAPI(1);
+	if (!git) {
+		vscode.window.showErrorMessage(`${FAILURE_MESSAGE} VS Code's Git extension is not active.`);
+		return;
+	}
+
+	const remote = git.repositories[0].state.remotes[0];
+	if (!remote) {
+		vscode.window.showErrorMessage(`${FAILURE_MESSAGE} there are no remotes.`);
+		return;
+	}
+
+	// If there's a remote object, there should be one or both fetch/push remote URLs, never neither.
+	const remoteUrl = (remote?.fetchUrl || remote?.pushUrl)!;
+
+	const commitHash = git.repositories[0].state.HEAD?.commit;
+	if (!commitHash) {
+		vscode.window.showErrorMessage(`${FAILURE_MESSAGE} there is no HEAD.`);
+		return;
+	}
+
+	if (!vscode.window.activeTextEditor) {
+		vscode.window.showErrorMessage(`${FAILURE_MESSAGE} there is no active editor.`);
+		return;
+	}
+
+	const fileUri = vscode.window.activeTextEditor.document.uri;
+	const relativeFilePath = vscode.workspace.asRelativePath(fileUri);
+
+	const selections = vscode.window.activeTextEditor.selections;
+	const selectionRange = unionSelectionRange(selections);
+
+	let gitLink = '';
+
+	if (isGitHubRemote(remoteUrl)) {
+		gitLink = createGitHubLink(remoteUrl, commitHash, relativeFilePath, selectionRange);
+	} else if (isBitbucketRemote(remoteUrl)) {
+		gitLink = createBitbucketLink(remoteUrl, commitHash, relativeFilePath, selectionRange);
+	}
+
+	if (!gitLink) {
+		vscode.window.showErrorMessage(`${FAILURE_MESSAGE} the remote Git host is unknown.`);
+		return;
+	}
+
+	// We did it!
+	vscode.env.clipboard.writeText(gitLink);
+
+	const gitStatusIsClean = git.repositories[0].state.workingTreeChanges.length === 0;
+
+	if (gitStatusIsClean) {
+		vscode.window.showInformationMessage(`${SUCCESS_MESSAGE}.`);
+	} else {
+		vscode.window.showWarningMessage(`${SUCCESS_MESSAGE}, but there are local changes so the link may be incorrect.`);
+	}
 }
 
 /**
@@ -99,8 +106,8 @@ function unionSelectionRange(selections: readonly vscode.Selection[]): LineRange
 		totalRange = totalRange.union(selections[i]);
 	}
 
-	// Opinionated call: Shave off the final trailing CR/LF. If I highlight an entire line, I would not want
-	// this extension to output a link with two lines. I'd expect only one line.
+	// Opinionated call: Shave off the final trailing [CR]LF. If I highlight an entire line including the [CR]LF, then
+	// the cursor is technically on two lines. Even so, I would want this extension to output a link with only one line.
 	const hasTrailingCrLf = !totalRange.isSingleLine && totalRange.end.character === 0;
 
 	const start = totalRange.start.line + 1;
@@ -113,7 +120,7 @@ function unionSelectionRange(selections: readonly vscode.Selection[]): LineRange
  * Create a link formatted specifically for GitHub.
  */
 
- function createGitHubLink(remoteUrl: string, commitHash: string, filePath: string, selectionRange: LineRange): string {
+ function createGitHubLink(remoteUrl: string, commitHash: string, relativeFilePath: string, selectionRange: LineRange): string {
 	const sshRemoteRegexpResult = GITHUB_SSH_REMOTE_REGEXP.exec(remoteUrl);
 	const httpsRemoteRegexpResult = GITHUB_HTTPS_REMOTE_REGEXP.exec(remoteUrl);
 	const remoteRegExpResult = sshRemoteRegexpResult || httpsRemoteRegexpResult;
@@ -126,16 +133,16 @@ function unionSelectionRange(selections: readonly vscode.Selection[]): LineRange
 	const projectName = remoteRegExpResult[2];
 
 	const firstLine = 'L' + selectionRange.start;
-	const secondLine = (selectionRange.start === selectionRange.end) ? '' : '-L' + selectionRange.end;
+	const secondLine = (selectionRange.start === selectionRange.end) ? '' : `-L${selectionRange.end}`;
 
-	return `https://github.com/${userName}/${projectName}/blob/${commitHash}/${filePath}#${firstLine}${secondLine}`;
+	return `https://github.com/${userName}/${projectName}/blob/${commitHash}/${relativeFilePath}#${firstLine}${secondLine}`;
 }
 
 /**
  * Create a link formatted specifically for Bitbucket.
  */
 
- function createBitbucketLink(remoteUrl: string, commitHash: string, filePath: string, selectionRange: LineRange): string {
+ function createBitbucketLink(remoteUrl: string, commitHash: string, relativeFilePath: string, selectionRange: LineRange): string {
 	const sshRemoteRegexpResult = BITBUCKET_SSH_REMOTE_REGEXP.exec(remoteUrl);
 	const httpsRemoteRegexpResult = BITBUCKET_HTTPS_REMOTE_REGEXP.exec(remoteUrl);
 
@@ -153,13 +160,13 @@ function unionSelectionRange(selections: readonly vscode.Selection[]): LineRange
 	}
 
 	const firstLine = selectionRange.start;
-	const secondLine = (selectionRange.start === selectionRange.end) ? '' : ':' + selectionRange.end;
+	const secondLine = (selectionRange.start === selectionRange.end) ? '' : `:${selectionRange.end}`;
 
-	return `https://bitbucket.org/${userName}/${projectName}/src/${commitHash}/${filePath}#lines-${firstLine}${secondLine}`;
+	return `https://bitbucket.org/${userName}/${projectName}/src/${commitHash}/${relativeFilePath}#lines-${firstLine}${secondLine}`;
 }
 
 /**
- * Check if remote URL is for GitHub.
+ * Check if the remote URL is for GitHub.
  */
 
  function isGitHubRemote(remoteUrl: string): boolean {
@@ -167,7 +174,7 @@ function unionSelectionRange(selections: readonly vscode.Selection[]): LineRange
 }
 
 /**
- * Check if remote URL is for Bitbucket.
+ * Check if the remote URL is for Bitbucket.
  */
 
  function isBitbucketRemote(remoteUrl: string): boolean {
