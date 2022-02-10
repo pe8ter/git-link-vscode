@@ -34,7 +34,7 @@ export function activate(context: vscode.ExtensionContext): void {
 }
 
 /**
- * Core functionality of the plugin. Pull together all of the necessary repo data and construct a link.
+ * Core functionality of the plugin. Pull together all of the necessary repository data and construct a link.
  */
 
 function main(): void {
@@ -49,7 +49,13 @@ function main(): void {
 		return;
 	}
 
-	const remote = git.repositories[0].state.remotes[0];
+	const repository = git.repositories[0];
+	if (!repository) {
+		vscode.window.showErrorMessage(`${FAILURE_MESSAGE} there is no Git repository in this workspace.`);
+		return;
+	}
+
+	const remote = repository.state.remotes[0];
 	if (!remote) {
 		vscode.window.showErrorMessage(`${FAILURE_MESSAGE} there are no remotes.`);
 		return;
@@ -58,7 +64,7 @@ function main(): void {
 	// If there's a remote object, there should be one or both fetch/push remote URLs, never neither.
 	const remoteUrl = (remote?.fetchUrl || remote?.pushUrl)!;
 
-	const commitHash = git.repositories[0].state.HEAD?.commit;
+	const commitHash = repository.state.HEAD?.commit;
 	if (!commitHash) {
 		vscode.window.showErrorMessage(`${FAILURE_MESSAGE} there is no HEAD.`);
 		return;
@@ -86,7 +92,7 @@ function main(): void {
 	// We did it!
 	vscode.env.clipboard.writeText(gitLink);
 
-	const gitStatusIsClean = git.repositories[0].state.workingTreeChanges.length === 0;
+	const gitStatusIsClean = repository.state.workingTreeChanges.length === 0;
 
 	if (gitStatusIsClean) {
 		vscode.window.showInformationMessage(`${SUCCESS_MESSAGE}.`);
