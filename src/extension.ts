@@ -38,6 +38,11 @@ export function activate(context: vscode.ExtensionContext): void {
  */
 
 function main(): void {
+	if (!vscode.window.activeTextEditor) {
+		vscode.window.showErrorMessage(`${FAILURE_MESSAGE} there is no active editor.`);
+		return;
+	}
+
 	const git = vscode.extensions.getExtension<GitExtension>('vscode.git')?.exports?.getAPI(1);
 	if (!git) {
 		vscode.window.showErrorMessage(`${FAILURE_MESSAGE} VS Code's Git extension is not active.`);
@@ -56,11 +61,6 @@ function main(): void {
 	const commitHash = git.repositories[0].state.HEAD?.commit;
 	if (!commitHash) {
 		vscode.window.showErrorMessage(`${FAILURE_MESSAGE} there is no HEAD.`);
-		return;
-	}
-
-	if (!vscode.window.activeTextEditor) {
-		vscode.window.showErrorMessage(`${FAILURE_MESSAGE} there is no active editor.`);
 		return;
 	}
 
