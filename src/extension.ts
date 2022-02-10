@@ -92,7 +92,7 @@ function main(): void {
 	// We did it!
 	vscode.env.clipboard.writeText(gitLink);
 
-	const gitStatusIsClean = repository.state.workingTreeChanges.length === 0;
+	const gitStatusIsClean = !repository.state.workingTreeChanges.find(change => change.uri.path === fileUri.path);
 
 	if (gitStatusIsClean) {
 		vscode.window.showInformationMessage(`${SUCCESS_MESSAGE}.`);
